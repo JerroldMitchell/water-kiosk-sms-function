@@ -1,2 +1,1 @@
-# No external dependencies required
-# This function uses only Python standard library
+# No external dependencies needed - using standard Python libraries only

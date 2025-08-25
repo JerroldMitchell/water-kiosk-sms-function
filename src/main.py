@@ -4,24 +4,21 @@ from datetime import datetime
 import urllib.request
 import urllib.parse
 import urllib.error
+import random
 
 # Configuration Constants - Environment Variables with Fallbacks
 APPWRITE_PROJECT_ID = os.environ.get('APPWRITE_PROJECT_ID', '689107c288885e90c039')
 APPWRITE_DATABASE_ID = os.environ.get('APPWRITE_DATABASE_ID', '6864aed388d20c69a461')
 APPWRITE_API_KEY = os.environ.get('APPWRITE_API_KEY', '0f3a08c2c4fc98480980cbe59cd2db6b8522734081f42db3480ab2e7a8ffd7c46e8476a62257e429ff11c1d6616e814ae8753fb07e7058d1b669c641012941092ddcd585df802eb2313bfba49bf3ec3f776f529c09a7f5efef2988e4b4821244bbd25b3cd16669885c173ac023b5b8a90e4801f3584eef607506362c6ae01c94')
 CUSTOMERS_COLLECTION_ID = os.environ.get('CUSTOMERS_COLLECTION_ID', 'customers')
-APPWRITE_ENDPOINT = os.environ.get('APPWRITE_ENDPOINT', 'http://appwrite-traefik/v1')
+#APPWRITE_ENDPOINT = os.environ.get('APPWRITE_ENDPOINT', 'http://appwrite-traefik/v1')
+APPWRITE_ENDPOINT = os.environ.get('APPWRITE_ENDPOINT', 'http://appwrite/v1')
 
 def main(context):
-    """
-    Water Kiosk SMS System - Clean Modern Version
-    """
     try:
-        # Handle payload parsing - fix for string body issue
         raw_body = context.req.body or {}
         method = context.req.method
         
-        # Parse body if it's a JSON string
         if isinstance(raw_body, str):
             try:
                 body = json.loads(raw_body)
@@ -30,7 +27,6 @@ def main(context):
         else:
             body = raw_body
         
-        # Debug logging
         context.log(f"Method: {method}")
         context.log(f"Raw body: {raw_body}")
         context.log(f"Raw body type: {type(raw_body)}")
@@ -68,7 +64,6 @@ def main(context):
                 result = handle_sms(context, phone, text, is_real=False)
                 return context.res.json(result)
             
-            # Handle real SMS webhook from Africa's Talking
             elif 'from' in body and 'text' in body:
                 phone = body.get('from')
                 text = body.get('text', '').strip()
@@ -92,9 +87,7 @@ def main(context):
             'timestamp': datetime.now().isoformat()
         }, 500)
 
-
 def test_database_connection(context):
-    """Test Appwrite database connection"""
     try:
         project_id = APPWRITE_PROJECT_ID
         database_id = APPWRITE_DATABASE_ID
@@ -135,9 +128,7 @@ def test_database_connection(context):
             'error': str(e)
         }
 
-
 def send_sms(context, phone_number, message):
-    """Send SMS via Africa's Talking"""
     try:
         api_key = os.environ.get('AFRICAS_TALKING_API_KEY')
         username = os.environ.get('AFRICAS_TALKING_USERNAME', 'sandbox')
@@ -150,7 +141,6 @@ def send_sms(context, phone_number, message):
                 'test_mode': True
             }
         
-        # Format phone number for Kenya
         if not phone_number.startswith('+'):
             if phone_number.startswith('0'):
                 phone_number = '+254' + phone_number[1:]
@@ -188,43 +178,7 @@ def send_sms(context, phone_number, message):
             'error': str(e)
         }
 
-
-def handle_sms(context, phone_number, message, is_real=False):
-    """Handle incoming SMS"""
-    try:
-        context.log(f"Processing {'REAL' if is_real else 'SIMULATED'} SMS from {phone_number}: {message}")
-        
-        # Get or create customer
-        customer = get_customer(context, phone_number)
-        if not customer:
-            customer = create_customer(context, phone_number)
-        
-        # Process message and get response
-        response_text = process_message(context, customer, message)
-        
-        # Send SMS response if real
-        if is_real and response_text:
-            sms_result = send_sms(context, phone_number, response_text)
-        
-        return {
-            'success': True,
-            'phone': phone_number,
-            'received': message,
-            'response': response_text,
-            'customer_id': customer.get('$id') if customer else None,
-            'is_real': is_real
-        }
-        
-    except Exception as e:
-        context.error(f'SMS handling error: {str(e)}')
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-
 def get_customer(context, phone_number):
-    """Get customer by phone number"""
     try:
         project_id = APPWRITE_PROJECT_ID
         database_id = APPWRITE_DATABASE_ID
@@ -232,7 +186,6 @@ def get_customer(context, phone_number):
         api_key = APPWRITE_API_KEY
         endpoint = APPWRITE_ENDPOINT
         
-        # Clean phone number
         clean_phone = phone_number.replace('+254', '0') if phone_number.startswith('+254') else phone_number
         
         query = f'equal("phone_number","{phone_number}")'
@@ -258,9 +211,7 @@ def get_customer(context, phone_number):
         context.error(f"Error getting customer: {str(e)}")
         return None
 
-
 def create_customer(context, phone_number):
-    """Create new customer"""
     try:
         project_id = APPWRITE_PROJECT_ID
         database_id = APPWRITE_DATABASE_ID
@@ -275,9 +226,10 @@ def create_customer(context, phone_number):
             'data': {
                 'phone_number': phone_number,
                 'created_at': datetime.now().isoformat(),
-                'registration_state': 'new',  # Changed from 'state' to 'registration_state'
+                'registration_state': 'new',
                 'is_registered': False,
-                'credits': 0
+                'credits': 0,
+                'active': True  # Default to active
             }
         }
         
@@ -299,9 +251,7 @@ def create_customer(context, phone_number):
         context.error(f"Error creating customer: {str(e)}")
         return None
 
-
 def update_customer(context, customer_id, updates):
-    """Update customer data"""
     try:
         project_id = APPWRITE_PROJECT_ID
         database_id = APPWRITE_DATABASE_ID
@@ -330,29 +280,55 @@ def update_customer(context, customer_id, updates):
         context.error(f"Error updating customer: {str(e)}")
         return None
 
+def handle_sms(context, phone_number, message, is_real=False):
+    try:
+        context.log(f"Processing {'REAL' if is_real else 'SIMULATED'} SMS from {phone_number}: {message}")
+        
+        customer = get_customer(context, phone_number)
+        if not customer:
+            customer = create_customer(context, phone_number)
+        
+        response_text = process_message(context, customer, message)
+        
+        if is_real and response_text:
+            sms_result = send_sms(context, phone_number, response_text)
+        
+        return {
+            'success': True,
+            'phone': phone_number,
+            'received': message,
+            'response': response_text,
+            'customer_id': customer.get('$id') if customer else None,
+            'is_real': is_real
+        }
+        
+    except Exception as e:
+        context.error(f'SMS handling error: {str(e)}')
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 def process_message(context, customer, message):
-    """Process customer message and return response"""
     if not customer:
         return "Welcome to Tusafishe Water Kiosks! 💧\nReply REGISTER to start"
     
-    state = customer.get('registration_state', 'new')  # Changed from 'state' to 'registration_state'
+    state = customer.get('registration_state', 'new')
     msg = message.lower().strip()
     
     try:
-        # Handle commands
         if msg in ['menu', 'help', 'start']:
             if customer.get('is_registered'):
                 credits = customer.get('credits', 0)
                 return (f"💧 Tusafishe Water Kiosk\n"
-                       f"Balance: {credits} KES\n"
-                       f"Commands: BALANCE, MENU")
+                        f"Balance: {credits} KES\n"
+                        f"Commands: BALANCE, MENU")
             else:
                 update_customer(context, customer['$id'], {'registration_state': 'main_menu'})
                 return ("Welcome to Tusafishe! 💧\n"
-                       "1. Register\n"
-                       "2. Check Balance\n"
-                       "Reply with number")
+                        "1. Register\n"
+                        "2. Check Balance\n"
+                        "Reply with number")
         
         elif msg in ['register', '1']:
             if customer.get('is_registered'):
@@ -363,7 +339,6 @@ def process_message(context, customer, message):
         
         elif state == 'registration_id':
             if len(message) >= 6:
-                # Just update the state, don't save id_number since it doesn't exist in schema
                 update_customer(context, customer['$id'], {
                     'registration_state': 'registration_name'
                 })
@@ -379,16 +354,38 @@ def process_message(context, customer, message):
             return "✅ Name saved! Enter your location:"
         
         elif state == 'registration_location':
-            account_id = f"TSF{customer['$id'][-6:].upper()}"
             update_customer(context, customer['$id'], {
                 'location': message,
-                'account_id': account_id,
-                'is_registered': True,
-                'registration_state': 'completed'
+                'registration_state': 'registration_pin'
             })
-            return (f"🎉 Registration complete!\n"
-                   f"Account: {account_id}\n"
-                   f"Reply MENU for options")
+            return "✅ Location saved! Enter your PIN (4 digits):"
+        
+        elif state == 'registration_pin':
+            if len(message) == 4 and message.isdigit():
+                update_customer(context, customer['$id'], {
+                    'pin': message,
+                    'registration_state': 'registration_active'
+                })
+                return "✅ PIN saved! Enter ACTIVE true or ACTIVE false to set account status:"
+            else:
+                return "Please enter a valid 4-digit PIN:"
+        
+        elif state == 'registration_active':
+            if message.lower() in ['active true', 'active false']:
+                active = message.lower() == 'active true'
+                account_id = f"TSF{customer['$id'][-6:].upper()}"
+                update_customer(context, customer['$id'], {
+                    'active': active,
+                    'account_id': account_id,
+                    'is_registered': True,
+                    'registration_state': 'completed'
+                })
+                return (f"🎉 Registration complete!\n"
+                        f"Account: {account_id}\n"
+                        f"Active: {active}\n"
+                        f"Reply MENU for options")
+            else:
+                return "Please enter 'ACTIVE true' or 'ACTIVE false':"
         
         elif msg in ['balance', '2']:
             if customer.get('is_registered'):
